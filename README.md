@@ -9,7 +9,6 @@
 
 ### The original blog post can be found [here](https://www.contextis.com/blog/dont-feed-them-after-midnight-reverse-engineering-the-furby-connect)
 
-*****
 
 ## DLC Class
 
@@ -61,11 +60,13 @@ Once you're ready, you can build a new DLC by calling the `build()` function, pa
 D.build("/tmp/new_dlc.dlc")
 ```
 
-*****
+
 
 ## Helper Functions
 
 Some sections have helper functions that might also be interesting for to you to play with:
+
+### extract_palette()
 
 `D.dlc_sections["PAL"].extract_palette()` will, if passed a .gif with a (single) 64-colour palette, extract that palette and convert it into the same format used as internal storage by the dlc class. This means you can do things like this:
 
@@ -77,6 +78,8 @@ new_palette = D.dlc_sections["PAL"].extract_palette("./my_gif.gif")
 n = 5
 D.dlc_sections["PAL"].palettes[n] = new_palette
 ```
+
+### quarterize()
 
 `D.dlc_sections["CEL"].quarterize()` will, if passed a 128x128 pixel .gif, convert that gif into a sequence of quarter-frames, in the same form as that used by the dlc class' internal storage. This means that you can do things like this:
 
@@ -94,6 +97,8 @@ new_palette = D.dlc_sections["PAL"].extract_palette("./my_gif.gif")
 new_cels = D.dlc_sections["CEL"].quarterize("./my_gif.gif", new_palette)
 ```
 
+### add_track() and remove_track()
+
 `D.dlc_sections["AMF"].remove_track()` will delete one of the audio tracks within the DLC. Similarly, `D.dlc_sections["AMF"].add_track()` can be used to insert tracks. You can use them together to replace audio tracks, like this:
 
 ```
@@ -104,6 +109,8 @@ D.dlc_sections["AMF"].remove_track(n)
 # Insert our own audio track at position n.
 D.dlc_sections["AMF"].add_track("mytrack.a18", n)
 ```
+
+### minify_audio()
 
 `D.dlc_sections["AMF"].minify_audio()` will shrink all the audio files in a DLC to a given length. This is pretty helpful if you're going to be testing multiple DLC files, as it will drastically shrink the size of your DLCs, meaning faster uploads. You can use it like so:
 
@@ -116,7 +123,7 @@ D.build("/tmp/minified_dlc.dlc")
 
 This should be exerything you'll need to get started modifying your Furby Connect DLC files!
 
-*****
+
 
 ## Contributing
 
