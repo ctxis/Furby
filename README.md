@@ -2,7 +2,7 @@
 ## Python tools for handing Furby Connect DLC files
 
 <p align="center">
-	<img src="./images/gifs/gif-full-padding_100.gif">
+	<img src="images/gifs/gif-full-padding_100.gif">
 </p>
 
 **Disclaimer: This script is pretty alpha; use at your own risk. Bad DLCs can make your Furby Connect very unhappy.**
