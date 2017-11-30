@@ -971,18 +971,25 @@ class dlc(object):
 
 		def remove_track(self, track_number):
 			return self.tracks.pop(track_number)
-		
+
+		def replace_track(self, tracknumber, trackpath):
+
+			self.remove_track(tracknumber)
+			self.add_track(trackpath, tracknumber)
+
 		def minify_audio(self, newlength_in=128):
 
 			#This always needs to be a multiple of 8.
-			newlength = ((newlength_in  >> 3 ) << 3)
+			audio_length = ((newlength_in  >> 3 ) << 3)
+			sampling_length = 2
+			size_length = 4
 			
-			newlength_packed = struct.pack("<I", newlength)
+			newlength_packed = struct.pack("<I", audio_length + sampling_length)
 			sample_rate = struct.pack("<H", self.samplerate)
 			
 			for i in range(len(self.tracks)):
 				
-				newtrack = newlength_packed + sample_rate + self.tracks[i][6:6+newlength]
+				newtrack = newlength_packed + sample_rate + self.tracks[i][6:6+audio_length]
 				self.tracks[i] = newtrack
 
 	#Passes tests;

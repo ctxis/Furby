@@ -12,7 +12,7 @@
 
 ## DLC Class
 
-To use this class, copy `furby.py` into your script's directory, then add the line `from furby import dlc` to the top of your script:
+This class is a wrapper around the syntax used by Furby Connect DLC files. To use it, add the line `from furby import dlc` to the top of your script:
 
 ```
 #!/usr/bin/env python
@@ -26,19 +26,19 @@ def main():
     ...
 ```
 
-To open up a new DLC for modification, just create a new object of class `dlc`, passing in the path to the DLC you'd like to open:
+The class can be instantiated with an existing Furby Connect DLC by passing the path to one such DLC when creating an instance of the class:
 
 ```
 D = dlc("./dlc/dlc1/tu012700.dlc")
 ```
 
-You can then access each of the various sections contained in the DLC via a nice python dictionary:
+You can then access each of the various sections contained in the DLC via the `dlc_sections` dictionary:
 
 ```
 cels_section = D.dlc_sections["XLS"]
 ```
 
-Each of the sections has a "main storage" object, which is either a list or a dictionary as appropriate to the section. Here are a few you might like to poke at:
+Each of the sections has a "main" storage object, which is either a list or a dictionary as appropriate to the section. Notable main storage objects are as follows:
 
 ```
 xls_tree             = D.dlc_sections["XLS"].action_tree
@@ -54,7 +54,7 @@ servo_movements      = D.dlc_sections["MTR"].animations
 
 For more information on what each section does and how they relate to one another, [check out our writeup](https://www.contextis.com/blog/dont-feed-them-after-midnight-reverse-engineering-the-furby-connect), which covers it in a fair amount of detail.
 
-Once you're ready, you can build a new DLC by calling the `build()` function, passing in the path to wherever you'd like to put your new DLC:
+After making modifications to a DLC, you can build it back into a new DLC by calling the `build()` function, passing the path to the output file:
 
 ```
 D.build("/tmp/new_dlc.dlc")
@@ -64,7 +64,8 @@ D.build("/tmp/new_dlc.dlc")
 
 ## Helper Functions
 
-Some sections have helper functions that might also be interesting for to you to play with:
+Modifying a DLC can be achieved by changing the content stored in each part of the dlc sections, but we have also included a number of helper functions to make common tasks more straightforward.
+
 
 ### extract_palette()
 
@@ -97,22 +98,19 @@ new_palette = D.dlc_sections["PAL"].extract_palette("./my_gif.gif")
 new_cels = D.dlc_sections["CEL"].quarterize("./my_gif.gif", new_palette)
 ```
 
-### add_track() and remove_track()
+### replace_track()
 
-`D.dlc_sections["AMF"].remove_track()` will delete one of the audio tracks within the DLC. Similarly, `D.dlc_sections["AMF"].add_track()` can be used to insert tracks. You can use them together to replace audio tracks, like this:
+`D.dlc_sections["AMF"].insert_track()` will replace one of the tracks in the AMF section with a track supplied by you. It can be used in the following way:
 
 ```
-# Remove the nth audio track.
+# Replace the nth audio track.
 n = 9
-D.dlc_sections["AMF"].remove_track(n)
-
-# Insert our own audio track at position n.
-D.dlc_sections["AMF"].add_track("mytrack.a18", n)
+D.dlc_sections["AMF"].replace_track(n, "mytrack.a18")
 ```
 
 ### minify_audio()
 
-`D.dlc_sections["AMF"].minify_audio()` will shrink all the audio files in a DLC to a given length. This is pretty helpful if you're going to be testing multiple DLC files, as it will drastically shrink the size of your DLCs, meaning faster uploads. You can use it like so:
+`D.dlc_sections["AMF"].minify_audio()` will shrink all the audio files in a DLC to a given length. This is useful if you're going to be testing multiple DLC files, as it will drastically shrink the size of your DLCs, resulting in faster uploads. You can use it like so:
 
 ```
 # Shrink a DLC
@@ -121,13 +119,19 @@ D.dlc_sections["AMF"].minify_audio()
 D.build("/tmp/minified_dlc.dlc")
 ```
 
-This should be exerything you'll need to get started modifying your Furby Connect DLC files!
+### dump_images()
 
+`D.dump_images()` will attempt to render and output all the cels it finds in the DLC. It also needs to be passed the index to the palette it'll use to render each image. Here's an example snippet:
 
+```
+# Draw chillis.
+D = dlc("./dlc/dlc1/tu003140.dlc")
+D.dump_images(4)
+```
 
 ## Contributing
 
-We really hope you enjoy playing with the scripts. If you'd like to contribute, here are a few things that might be useful:
+We really hope you enjoy tinkering with the scripts. If you'd like to contribute, here are a few things that still need work:
 
  - Cataloguing the motions in the MTR section
  - Improving the `__compile__()` function of both the XLS and SPR sections to be more robust
