@@ -163,17 +163,18 @@ class dlc(object):
 					raise FormatError("Bad magic bytes.")
 				
 				#Find and read section information.
+				num_section_entries, checknum = divmod((self.main_header_length - len(self.magic_bytes)), self.section_entry_length)
+				try:
+					assert (checknum == 0)
+				except:
+					raise FormatError("Bad Header Format.")
 
-				s = self.__read__(self.main_header_length - len(self.magic_bytes))
-				slen = len(s)
-				seqlen = len(self.default_prefix)
-
-				for i in range(0, slen-seqlen):
-					thisrun = s[i:i+seqlen]
-					if (thisrun == self.default_prefix):
-						section_name = s[i+18:i+24:2]
-						section_length = struct.unpack("<I", s[i+30:i+34])[0]
-						
+				for i in range(num_section_entries):
+					thisrun = self.__read__(self.section_entry_length)
+					
+					if (thisrun[:len(self.default_prefix)] == self.default_prefix):
+						section_name = thisrun[18:24:2]
+						section_length = struct.unpack("<I", thisrun[30:34])[0]
 						self.register_section(section_name, section_length)
 
 				#And we're done!
@@ -1296,7 +1297,6 @@ class dlc(object):
 		def get_name(self):
 			return "MTR"
 
-
 	#Creates the class.
 	#Also includes a self-test - to run it, just set self_test to something.
 	def __init__(self, filepath_in=None, self_test=None):
@@ -1316,6 +1316,7 @@ class dlc(object):
 
 				filemap = { e[0] : {"l" : e[1], "o" : e[2]} for e in section_map}
 				
+				#Generate section objects.
 				section_generators = {
 					"PAL"   	:	self.PAL_section,
 					"SPR"   	:	self.SPR_section,
@@ -1355,10 +1356,19 @@ class dlc(object):
 
 	#Builds a new DLC.
 	def build(self, filepath_in):
-		
+
+		#Generate each of the sections we'd like to include.
+		#Also re-generate the header as we go.
+		self.dlc_header.registered_fields = {}
+		generated_sections = {}
+		for sec in self.dlc_header.header_fields:
+			if sec in self.dlc_sections:
+				generated_sections[sec] = self.dlc_sections[sec].write_out()
+				self.dlc_header.register_section(sec, len(generated_sections[sec]))
+
 		#Open the file.
 		with open(filepath_in, "w") as f:
-			
+
 			#Write header.
 			f.write(self.dlc_header.write_out())
 			
