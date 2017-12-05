@@ -347,42 +347,71 @@ class dlc(object):
 
 		t1_terminator = 0x40
 		t3_terminator = 0xffff
+		t1_length = 0xe0
 
 		def __initialise__(self):
 
-			self.anim_tree = {}
+			self.frame_playlists = []
+			self.frames = []
 			
 			if (self.rawbytes != ""):
 				
 				#Get type-1 entries.
-				#[length of t2 entry, offset to t2 entry, ???, terminator (0x40)]
-				self.anim_tree = {}
+				#[length of t2 entry, offset to t2 entry, ???(perhaps layer number?), terminator (0x40)]
+				
+				t2offsets = set()
+				
 				for w in range(16):
 
 					raw_vals = [self.__unpack__(2), self.__unpack__(4), self.__unpack__(4), self.__unpack__(4)]
 					
-					assert(raw_vals[3] == self.t1_terminator)
+					assert(raw_vals[-1] == self.t1_terminator)
 					
-					self.anim_tree[w] = {
+					self.frame_playlists.append({
 						"framecount" 	:	raw_vals[0],
-						"framelistoffset"	:	raw_vals[1],
-						"thing" 	:	raw_vals[2],
-						"t1_vals"  	:	raw_vals,
-						"frames"	:	[]
-					}
+						"t2_offset_raw"	:	raw_vals[1],
+						"layer" 	:	raw_vals[2],
+						"t1_vals"  	:	raw_vals
+					})
+					
+					t2offsets.add(raw_vals[1])
 
 				#Get type-2 entries (pointers to whole frames)
-				for w in self.anim_tree:
-					self.__seek__(self.anim_tree[w]["framelistoffset"]*2)
-					self.anim_tree[w]["t2_vals"] = [self.__unpack__(4) for _ in range(self.anim_tree[w]["framecount"])]
+				for w in range(16):
+					self.__seek__(self.frame_playlists[w]["t2_offset_raw"]*2)
+					self.frame_playlists[w]["t3_offsets_raw"] = [self.__unpack__(4) for _ in range(self.frame_playlists[w]["framecount"])]
+
 
 				#Get type-3 entries (whole frames, as a sequence of quarter-frames)
-				for w in self.anim_tree:
-					for x in self.anim_tree[w]["t2_vals"]:
+				interim_frames = {}
+				for w in range(16):
+					for i in range(self.frame_playlists[w]["framecount"]):
 						
-						self.__seek__(x*2)
-						self.anim_tree[w]["frames"].append([self.__unpack__(2) for _ in range(9)])
-						assert(self.anim_tree[w]["frames"][-1][-1] == self.t3_terminator)
+						frame_offset = self.frame_playlists[w]["t3_offsets_raw"][i] 
+						
+						self.__seek__(frame_offset * 2)
+						interim_frames[frame_offset] = [self.__unpack__(2) for _ in range(9)]
+						assert(interim_frames[frame_offset][-1] == self.t3_terminator)
+
+				#Build "frames", checking for missing/unreferenced frames.
+				all_frame_offsets = list(range(self.t1_length/2, max(interim_frames)+1, 9))
+				for i in all_frame_offsets:
+					
+					if i not in interim_frames:
+						print "dead frame at index %02d" % i
+						interim_frames[i] = [0,1,0,1,0,1,0,1,self.t3_terminator]
+
+				self.frames = [interim_frames[i] for i in all_frame_offsets]
+
+				#Fix up t3 indices.
+				for w in range(16):
+					self.frame_playlists[w]["frame_indices"] = [all_frame_offsets.index(i) for i in self.frame_playlists[w]["t3_offsets_raw"]]
+
+				#Fix up t2 indices.
+				t2offsets = sorted(list(t2offsets))
+				for w in range(16):
+					self.frame_playlists[w]["framelist_index"] = t2offsets.index(self.frame_playlists[w]["t2_offset_raw"])
+				assert(set([w["framelist_index"] for w in self.frame_playlists]) == set(range(16)))
 
 
 		def __compile__(self):
@@ -390,64 +419,45 @@ class dlc(object):
 			self.rawbytes = ""
 			self.__seek__(0)
 
-			all_t3_entries = set()
-			t2_entry_count = 0
+			#build t3.
+			t3_raw = ""
+			for f in self.frames:
+				for i in f:
+					t3_raw += struct.pack("<H", i)
 
-			#Lay down type-1 entries.
-			for W in self.anim_tree:
+			#Fix up t3 offsets.
+			word_offset, checknum = divmod(self.t1_length,2)
+			assert(checknum == 0)
+			for w in range(16):
+				self.frame_playlists[w]["t3_offsets_raw"] = [ ((i * 9) + word_offset) for i in self.frame_playlists[w]["frame_indices"] ]
+
+			#Fix up t2 offsets (and build t2.)
+			t2_raw = ""
+			word_offset, checknum = divmod((self.t1_length+len(t3_raw)),2)
+			assert(checknum == 0)
+			ordered_by_t2_index = sorted(range(len(self.frame_playlists)), key=lambda w : self.frame_playlists[w]["framelist_index"])
+			for w in ordered_by_t2_index:
+				self.frame_playlists[w]["t2_offset_raw"] = word_offset
+				word_offset += 2 * len(self.frame_playlists[w]["frame_indices"])
 				
-				w = self.anim_tree[W]
-				
-				raw_vals = w["t1_vals"]
-				self.__pack__(raw_vals[0], 2)
-				self.__pack__(raw_vals[1], 4)
-				self.__pack__(raw_vals[2], 4)
-				self.__pack__(raw_vals[3], 4)
+				for i in self.frame_playlists[w]["t3_offsets_raw"]:
+					t2_raw += struct.pack("<I", i)
 
-				t2_entry_count += w["framecount"]
+			#Build t1.
+			for w in range(16):
+				self.__pack__(self.frame_playlists[w]["framecount"],2)
+				self.__pack__(self.frame_playlists[w]["t2_offset_raw"],4)
+				self.__pack__(self.frame_playlists[w]["layer"],4)
+				self.__pack__(self.t1_terminator,4)
 
-				for i in w["t2_vals"]:
-					all_t3_entries.add(i)
+			#Lay down t3 (ffs Hasbro)
+			self.__write__(t3_raw)
 
-			#Make space for t3 entries.
-			for i in all_t3_entries:
-				self.__write__("\x00"*18)
-
-			#Make space for t2 entries.
-			for i in range(t2_entry_count):
-				self.__write__("\x00"*4)
-
-			#Lay down type-2 entries.
-			for W in self.anim_tree:
-
-				w = self.anim_tree[W]
-
-				self.__seek__(w["framelistoffset"]*2)
-				for o in w["t2_vals"]:
-					self.__pack__(o,4)
-
-			#Lay down type-3 entries.
-			writtenyet = set()
-			for W in self.anim_tree:
-				
-				w = self.anim_tree[W]
-				for io in range(len(w["t2_vals"])):
-					
-					o = w["t2_vals"][io]
-				
-					if o not in writtenyet:
-						
-						writtenyet.add(o)
-						self.__seek__(o*2)
-						
-						for f in w["frames"][io]:
-							
-							self.__pack__(f, 2)
+			#Lay down t2.
+			self.__write__(t2_raw)
 
 		def get_name(self):
 			return "SPR"
-
-
 
 		def analyse_frames(self, anim_no, frame_no):
 			
