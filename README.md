@@ -67,6 +67,41 @@ D.build("/tmp/new_dlc.dlc")
 Modifying a DLC can be achieved by changing the content stored in each part of the dlc sections, but we have also included a number of helper functions to make common tasks more straightforward.
 
 
+### dump_images(palette_index)
+`dump_images()` can be used to find and extract all the cels contained within a DLC, converting them to non-indexed 32-bit colour RGBA PNGs.
+
+ - `palette_index` is the index of the palette to use for rendering the cels. Although individual cels require different palettes to be rendered correctly, for ease of use, this function only accepts one palette index at a time.
+
+Here's an example:
+
+```
+# Dump cels using the 4th palette contained in the DLC.
+D.dump_images(4)
+
+# Different cels use different palettes.
+D.dump_images(5)
+D.dump_images(3)
+```
+
+### replace_audio(action_code, audio_files)
+`replace_audio()` can be used to change the audio files played back as part of a response to a particular action code. It works by modifying entries in the AMF section, without changing references in higher sections. As a single AMF entry might be referenced in several places, this function might not always work in exactly the way you'd expect.
+
+ - `action_code` is a 4-tuple containing the action code whose audio response you'd like to change. For example, passing `(75,0,0,0)` will direct the function to work on the audio used as a response to action code 75-0-0-0.
+ - `audio_files` is a list of paths to audio files you'd like to insert into the DLC. Note that these need to be a18-encoded.
+
+Here's an example:
+```
+# Replace audio response to action code 75-0-0-0
+D.replace_audio((75,0,0,0), ["my_audio_1.a18", "my_audio_2.a18", "my_audio_3.a18", "my_audio_4.a18"])
+
+# If too many audio files are given, the function will start with the first one, and attempt to insert as many as possible into the specified response.
+D.replace_audio((75,0,0,1), ["my_audio_1.a18", "my_audio_2.a18", "my_audio_3.a18", "my_audio_4.a18"])
+
+# If too few audio files are given, the function will loop the last one as many times as it can.
+D.replace_audio((75,0,0,1), ["my_audio_1.a18"])
+
+```
+
 ### extract_palette()
 
 `D.dlc_sections["PAL"].extract_palette()` will, if passed a .gif with a (single) 64-colour palette, extract that palette and convert it into the same format used as internal storage by the dlc class. This means you can do things like this:
@@ -138,3 +173,9 @@ We really hope you enjoy tinkering with the scripts. If you'd like to contribute
  - Implementing an analogue of the GeneralPlus a18 codec in Python, for converting .wav file
 
 Enjoy - we're looking forward to seeing what you make with it!
+
+## Further Reading
+- [Reverse Engineering the Furby Connect (Context IS Blog Post)](https://www.contextis.com/blog/dont-feed-them-after-midnight-reverse-engineering-the-furby-connect)
+- [Paul Stone's FurBLE Web Bluetooth Controller](https://github.com/pdjstone/furby-web-bluetooth)
+- [Jeija's Bluefluff project](https://github.com/Jeija/bluefluff)
+- [L0ss & Swarley's Furbhax project](https://github.com/swarley7/furbhax)

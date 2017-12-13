@@ -307,7 +307,7 @@ class dlc(object):
 		def get_name(self):
 			return "PAL"
 
-		def extract_palette(self, filename_in):
+		def extract_palette(self, filename_in, pad=True):
 
 			im = PILImage.open(filename_in)
 
@@ -333,13 +333,29 @@ class dlc(object):
 
 			im.close()
 
+			#Pad if necessary.
+			delta = self.num_colours - len(mypalette)
+			if ((delta > 0) and (pad == True)):
+				mypalette += [(0xff, 0xff, 0xff, 0xff)] * delta
+
 			#Check length
 			try:
 				assert(len(mypalette) == self.num_colours)
-			except AssertionError():
-				raise FormatError("Palette is of length %d; need to use a single palette containing %d colours." % (len(my_palette), self.num_colours))
+			except:
+				raise FormatError("Palette is of length %d; need to use a single palette containing %d colours." % (len(mypalette), self.num_colours))
 			else:
 				return mypalette
+
+		#This will generate and return a simple monochrome debug palette.
+		def debug_palette(self):
+
+			c_max = 248
+			a_transparent = 0x00
+			a_opaque = 0xff
+
+			new_palette = [(c_max,c_max,c_max,a_transparent)]
+			new_palette += reversed([(i,i,i,a_opaque) for i in range(0, c_max, c_max/62)][:62] + [(c_max,c_max,c_max,a_opaque)])
+			return new_palette
 
 	#Passes tests;
 	#One weird byte left to identify.
@@ -349,11 +365,13 @@ class dlc(object):
 		t3_terminator = 0xffff
 		t1_length = 0xe0
 
+		channels_per_anim = 8
+
 		def __initialise__(self):
 
 			self.frame_playlists = []
 			self.frames = []
-			
+
 			if (self.rawbytes != ""):
 				
 				#Get type-1 entries.
@@ -412,7 +430,6 @@ class dlc(object):
 				for w in range(16):
 					self.frame_playlists[w]["framelist_index"] = t2offsets.index(self.frame_playlists[w]["t2_offset_raw"])
 				assert(set([w["framelist_index"] for w in self.frame_playlists]) == set(range(16)))
-
 
 		def __compile__(self):
 
@@ -1182,6 +1199,8 @@ class dlc(object):
 
 		default_header_entry_length = 0x06	# in bytes
 		entry_terminator = 0
+		
+		playlist_offset = 0x4546
 
 		def __initialise__(self):
 			self.sequences = []
@@ -1414,4 +1433,57 @@ class dlc(object):
 		for p in range(len(self.dlc_sections["CEL"].cels)):
 
 			self.draw_cel(p, palette_number, (stub % p))
+
+	def replace_audio(self, action_code, audio_files):
+
+		assert((type(action_code) == tuple) and (len(action_code) == 4))
+
+		sequence_no = self.dlc_sections["XLS"].action_tree[action_code[0]][action_code[1]][action_code[2]][action_code[3]]["seq"]
+		apl_no = self.dlc_sections["SEQ"].sequences[sequence_no][1] - self.dlc_sections["SEQ"].playlist_offset
+
+		amf_numbers = [i[0] for i in self.dlc_sections["APL"].playlists[apl_no] if i[1] == "AUDIO"]
+
+		delta = len(amf_numbers) - len(audio_files)
+
+		if (delta > 0):
+			repeat_reference = amf_numbers[-1-delta]
+			amf_numbers[-1:(-1-delta):-1] = [repeat_reference]*delta
+			repeat_track = audio_files[-1]
+			audio_files += [repeat_track]*delta
+
+		elif (delta < 0):
+			audio_files = audio_files[:delta]
+			
+		else:
+			#Nothing to be done. Nice!
+			pass
+
+		#Replace tracks.
+		for i in range(len(amf_numbers)):
+			
+			a = amf_numbers[i]
+			t = audio_files[i]
+			
+			self.dlc_sections["AMF"].replace_track(a, t)
+
+	def trigger_custom_graphics(self, action_code):
+
+		assert((type(action_code) == tuple) and (len(action_code) == 4))
+
+		sequence_no = self.dlc_sections["XLS"].action_tree[action_code[0]][action_code[1]][action_code[2]][action_code[3]]["seq"]
+		
+		for i in range(3, len(self.dlc_sections["SEQ"].sequences[sequence_no])-1):
+			
+			top_nibble = self.dlc_sections["SEQ"].sequences[sequence_no][i] >> 12
+			
+			#0x8xxx refer to specific eye animations;
+			#0xaxxx allow for a random eye animation (possibly selected from a pool)
+			if ((top_nibble == 0x08) or (top_nibble == 0x0a)):
+				self.dlc_sections["SEQ"].sequences[sequence_no][i] = 0x8401
+			
+			#Shrink inter-clip spacing.
+			#0x1032 is the smallest separator observed "in the wild."
+			#(This still needs testing)
+			#else:
+			#	self.dlc_sections["SEQ"].sequences[sequence_no][i] = 0x1032
 
