@@ -163,17 +163,18 @@ class dlc(object):
 					raise FormatError("Bad magic bytes.")
 				
 				#Find and read section information.
+				num_section_entries, checknum = divmod((self.main_header_length - len(self.magic_bytes)), self.section_entry_length)
+				try:
+					assert (checknum == 0)
+				except:
+					raise FormatError("Bad Header Format.")
 
-				s = self.__read__(self.main_header_length - len(self.magic_bytes))
-				slen = len(s)
-				seqlen = len(self.default_prefix)
-
-				for i in range(0, slen-seqlen):
-					thisrun = s[i:i+seqlen]
-					if (thisrun == self.default_prefix):
-						section_name = s[i+18:i+24:2]
-						section_length = struct.unpack("<I", s[i+30:i+34])[0]
-						
+				for i in range(num_section_entries):
+					thisrun = self.__read__(self.section_entry_length)
+					
+					if (thisrun[:len(self.default_prefix)] == self.default_prefix):
+						section_name = thisrun[18:24:2]
+						section_length = struct.unpack("<I", thisrun[30:34])[0]
 						self.register_section(section_name, section_length)
 
 				#And we're done!
@@ -306,7 +307,7 @@ class dlc(object):
 		def get_name(self):
 			return "PAL"
 
-		def extract_palette(self, filename_in):
+		def extract_palette(self, filename_in, pad=True):
 
 			im = PILImage.open(filename_in)
 
@@ -332,13 +333,29 @@ class dlc(object):
 
 			im.close()
 
+			#Pad if necessary.
+			delta = self.num_colours - len(mypalette)
+			if ((delta > 0) and (pad == True)):
+				mypalette += [(0xff, 0xff, 0xff, 0xff)] * delta
+
 			#Check length
 			try:
 				assert(len(mypalette) == self.num_colours)
-			except AssertionError():
-				raise FormatError("Palette is of length %d; need to use a single palette containing %d colours." % (len(my_palette), self.num_colours))
+			except:
+				raise FormatError("Palette is of length %d; need to use a single palette containing %d colours." % (len(mypalette), self.num_colours))
 			else:
 				return mypalette
+
+		#This will generate and return a simple monochrome debug palette.
+		def debug_palette(self):
+
+			c_max = 248
+			a_transparent = 0x00
+			a_opaque = 0xff
+
+			new_palette = [(c_max,c_max,c_max,a_transparent)]
+			new_palette += reversed([(i,i,i,a_opaque) for i in range(0, c_max, c_max/62)][:62] + [(c_max,c_max,c_max,a_opaque)])
+			return new_palette
 
 	#Passes tests;
 	#One weird byte left to identify.
@@ -346,107 +363,118 @@ class dlc(object):
 
 		t1_terminator = 0x40
 		t3_terminator = 0xffff
+		t1_length = 0xe0
+
+		channels_per_anim = 8
 
 		def __initialise__(self):
 
-			self.anim_tree = {}
-			
+			self.frame_playlists = []
+			self.frames = []
+
 			if (self.rawbytes != ""):
 				
 				#Get type-1 entries.
-				#[length of t2 entry, offset to t2 entry, ???, terminator (0x40)]
-				self.anim_tree = {}
+				#[length of t2 entry, offset to t2 entry, ???(perhaps layer number?), terminator (0x40)]
+				
+				t2offsets = set()
+				
 				for w in range(16):
 
 					raw_vals = [self.__unpack__(2), self.__unpack__(4), self.__unpack__(4), self.__unpack__(4)]
 					
-					assert(raw_vals[3] == self.t1_terminator)
+					assert(raw_vals[-1] == self.t1_terminator)
 					
-					self.anim_tree[w] = {
+					self.frame_playlists.append({
 						"framecount" 	:	raw_vals[0],
-						"framelistoffset"	:	raw_vals[1],
-						"thing" 	:	raw_vals[2],
-						"t1_vals"  	:	raw_vals,
-						"frames"	:	[]
-					}
+						"t2_offset_raw"	:	raw_vals[1],
+						"layer" 	:	raw_vals[2],
+						"t1_vals"  	:	raw_vals
+					})
+					
+					t2offsets.add(raw_vals[1])
 
 				#Get type-2 entries (pointers to whole frames)
-				for w in self.anim_tree:
-					self.__seek__(self.anim_tree[w]["framelistoffset"]*2)
-					self.anim_tree[w]["t2_vals"] = [self.__unpack__(4) for _ in range(self.anim_tree[w]["framecount"])]
+				for w in range(16):
+					self.__seek__(self.frame_playlists[w]["t2_offset_raw"]*2)
+					self.frame_playlists[w]["t3_offsets_raw"] = [self.__unpack__(4) for _ in range(self.frame_playlists[w]["framecount"])]
+
 
 				#Get type-3 entries (whole frames, as a sequence of quarter-frames)
-				for w in self.anim_tree:
-					for x in self.anim_tree[w]["t2_vals"]:
+				interim_frames = {}
+				for w in range(16):
+					for i in range(self.frame_playlists[w]["framecount"]):
 						
-						self.__seek__(x*2)
-						self.anim_tree[w]["frames"].append([self.__unpack__(2) for _ in range(9)])
-						assert(self.anim_tree[w]["frames"][-1][-1] == self.t3_terminator)
+						frame_offset = self.frame_playlists[w]["t3_offsets_raw"][i] 
+						
+						self.__seek__(frame_offset * 2)
+						interim_frames[frame_offset] = [self.__unpack__(2) for _ in range(9)]
+						assert(interim_frames[frame_offset][-1] == self.t3_terminator)
 
+				#Build "frames", checking for missing/unreferenced frames.
+				all_frame_offsets = list(range(self.t1_length/2, max(interim_frames)+1, 9))
+				for i in all_frame_offsets:
+					
+					if i not in interim_frames:
+						print "dead frame at index %02d" % i
+						interim_frames[i] = [0,1,0,1,0,1,0,1,self.t3_terminator]
+
+				self.frames = [interim_frames[i] for i in all_frame_offsets]
+
+				#Fix up t3 indices.
+				for w in range(16):
+					self.frame_playlists[w]["frame_indices"] = [all_frame_offsets.index(i) for i in self.frame_playlists[w]["t3_offsets_raw"]]
+
+				#Fix up t2 indices.
+				t2offsets = sorted(list(t2offsets))
+				for w in range(16):
+					self.frame_playlists[w]["framelist_index"] = t2offsets.index(self.frame_playlists[w]["t2_offset_raw"])
+				assert(set([w["framelist_index"] for w in self.frame_playlists]) == set(range(16)))
 
 		def __compile__(self):
 
 			self.rawbytes = ""
 			self.__seek__(0)
 
-			all_t3_entries = set()
-			t2_entry_count = 0
+			#build t3.
+			t3_raw = ""
+			for f in self.frames:
+				for i in f:
+					t3_raw += struct.pack("<H", i)
 
-			#Lay down type-1 entries.
-			for W in self.anim_tree:
+			#Fix up t3 offsets.
+			word_offset, checknum = divmod(self.t1_length,2)
+			assert(checknum == 0)
+			for w in range(16):
+				self.frame_playlists[w]["t3_offsets_raw"] = [ ((i * 9) + word_offset) for i in self.frame_playlists[w]["frame_indices"] ]
+
+			#Fix up t2 offsets (and build t2.)
+			t2_raw = ""
+			word_offset, checknum = divmod((self.t1_length+len(t3_raw)),2)
+			assert(checknum == 0)
+			ordered_by_t2_index = sorted(range(len(self.frame_playlists)), key=lambda w : self.frame_playlists[w]["framelist_index"])
+			for w in ordered_by_t2_index:
+				self.frame_playlists[w]["t2_offset_raw"] = word_offset
+				word_offset += 2 * len(self.frame_playlists[w]["frame_indices"])
 				
-				w = self.anim_tree[W]
-				
-				raw_vals = w["t1_vals"]
-				self.__pack__(raw_vals[0], 2)
-				self.__pack__(raw_vals[1], 4)
-				self.__pack__(raw_vals[2], 4)
-				self.__pack__(raw_vals[3], 4)
+				for i in self.frame_playlists[w]["t3_offsets_raw"]:
+					t2_raw += struct.pack("<I", i)
 
-				t2_entry_count += w["framecount"]
+			#Build t1.
+			for w in range(16):
+				self.__pack__(self.frame_playlists[w]["framecount"],2)
+				self.__pack__(self.frame_playlists[w]["t2_offset_raw"],4)
+				self.__pack__(self.frame_playlists[w]["layer"],4)
+				self.__pack__(self.t1_terminator,4)
 
-				for i in w["t2_vals"]:
-					all_t3_entries.add(i)
+			#Lay down t3 (ffs Hasbro)
+			self.__write__(t3_raw)
 
-			#Make space for t3 entries.
-			for i in all_t3_entries:
-				self.__write__("\x00"*18)
-
-			#Make space for t2 entries.
-			for i in range(t2_entry_count):
-				self.__write__("\x00"*4)
-
-			#Lay down type-2 entries.
-			for W in self.anim_tree:
-
-				w = self.anim_tree[W]
-
-				self.__seek__(w["framelistoffset"]*2)
-				for o in w["t2_vals"]:
-					self.__pack__(o,4)
-
-			#Lay down type-3 entries.
-			writtenyet = set()
-			for W in self.anim_tree:
-				
-				w = self.anim_tree[W]
-				for io in range(len(w["t2_vals"])):
-					
-					o = w["t2_vals"][io]
-				
-					if o not in writtenyet:
-						
-						writtenyet.add(o)
-						self.__seek__(o*2)
-						
-						for f in w["frames"][io]:
-							
-							self.__pack__(f, 2)
+			#Lay down t2.
+			self.__write__(t2_raw)
 
 		def get_name(self):
 			return "SPR"
-
-
 
 		def analyse_frames(self, anim_no, frame_no):
 			
@@ -971,18 +999,25 @@ class dlc(object):
 
 		def remove_track(self, track_number):
 			return self.tracks.pop(track_number)
-		
+
+		def replace_track(self, tracknumber, trackpath):
+
+			self.remove_track(tracknumber)
+			self.add_track(trackpath, tracknumber)
+
 		def minify_audio(self, newlength_in=128):
 
 			#This always needs to be a multiple of 8.
-			newlength = ((newlength_in  >> 3 ) << 3)
+			audio_length = ((newlength_in  >> 3 ) << 3)
+			sampling_length = 2
+			size_length = 4
 			
-			newlength_packed = struct.pack("<I", newlength)
+			newlength_packed = struct.pack("<I", audio_length + sampling_length)
 			sample_rate = struct.pack("<H", self.samplerate)
 			
 			for i in range(len(self.tracks)):
 				
-				newtrack = newlength_packed + sample_rate + self.tracks[i][6:6+newlength]
+				newtrack = newlength_packed + sample_rate + self.tracks[i][6:6+audio_length]
 				self.tracks[i] = newtrack
 
 	#Passes tests;
@@ -1164,6 +1199,8 @@ class dlc(object):
 
 		default_header_entry_length = 0x06	# in bytes
 		entry_terminator = 0
+		
+		playlist_offset = 0x4546
 
 		def __initialise__(self):
 			self.sequences = []
@@ -1289,7 +1326,6 @@ class dlc(object):
 		def get_name(self):
 			return "MTR"
 
-
 	#Creates the class.
 	#Also includes a self-test - to run it, just set self_test to something.
 	def __init__(self, filepath_in=None, self_test=None):
@@ -1309,6 +1345,7 @@ class dlc(object):
 
 				filemap = { e[0] : {"l" : e[1], "o" : e[2]} for e in section_map}
 				
+				#Generate section objects.
 				section_generators = {
 					"PAL"   	:	self.PAL_section,
 					"SPR"   	:	self.SPR_section,
@@ -1348,10 +1385,19 @@ class dlc(object):
 
 	#Builds a new DLC.
 	def build(self, filepath_in):
-		
+
+		#Generate each of the sections we'd like to include.
+		#Also re-generate the header as we go.
+		self.dlc_header.registered_fields = {}
+		generated_sections = {}
+		for sec in self.dlc_header.header_fields:
+			if sec in self.dlc_sections:
+				generated_sections[sec] = self.dlc_sections[sec].write_out()
+				self.dlc_header.register_section(sec, len(generated_sections[sec]))
+
 		#Open the file.
 		with open(filepath_in, "w") as f:
-			
+
 			#Write header.
 			f.write(self.dlc_header.write_out())
 			
@@ -1387,4 +1433,57 @@ class dlc(object):
 		for p in range(len(self.dlc_sections["CEL"].cels)):
 
 			self.draw_cel(p, palette_number, (stub % p))
+
+	def replace_audio(self, action_code, audio_files):
+
+		assert((type(action_code) == tuple) and (len(action_code) == 4))
+
+		sequence_no = self.dlc_sections["XLS"].action_tree[action_code[0]][action_code[1]][action_code[2]][action_code[3]]["seq"]
+		apl_no = self.dlc_sections["SEQ"].sequences[sequence_no][1] - self.dlc_sections["SEQ"].playlist_offset
+
+		amf_numbers = [i[0] for i in self.dlc_sections["APL"].playlists[apl_no] if i[1] == "AUDIO"]
+
+		delta = len(amf_numbers) - len(audio_files)
+
+		if (delta > 0):
+			repeat_reference = amf_numbers[-1-delta]
+			amf_numbers[-1:(-1-delta):-1] = [repeat_reference]*delta
+			repeat_track = audio_files[-1]
+			audio_files += [repeat_track]*delta
+
+		elif (delta < 0):
+			audio_files = audio_files[:delta]
+			
+		else:
+			#Nothing to be done. Nice!
+			pass
+
+		#Replace tracks.
+		for i in range(len(amf_numbers)):
+			
+			a = amf_numbers[i]
+			t = audio_files[i]
+			
+			self.dlc_sections["AMF"].replace_track(a, t)
+
+	def trigger_custom_graphics(self, action_code):
+
+		assert((type(action_code) == tuple) and (len(action_code) == 4))
+
+		sequence_no = self.dlc_sections["XLS"].action_tree[action_code[0]][action_code[1]][action_code[2]][action_code[3]]["seq"]
+		
+		for i in range(3, len(self.dlc_sections["SEQ"].sequences[sequence_no])-1):
+			
+			top_nibble = self.dlc_sections["SEQ"].sequences[sequence_no][i] >> 12
+			
+			#0x8xxx refer to specific eye animations;
+			#0xaxxx allow for a random eye animation (possibly selected from a pool)
+			if ((top_nibble == 0x08) or (top_nibble == 0x0a)):
+				self.dlc_sections["SEQ"].sequences[sequence_no][i] = 0x8401
+			
+			#Shrink inter-clip spacing.
+			#0x1032 is the smallest separator observed "in the wild."
+			#(This still needs testing)
+			#else:
+			#	self.dlc_sections["SEQ"].sequences[sequence_no][i] = 0x1032
 
