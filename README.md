@@ -179,3 +179,4 @@ Enjoy - we're looking forward to seeing what you make with it!
 - [Paul Stone's FurBLE Web Bluetooth Controller](https://github.com/pdjstone/furby-web-bluetooth)
 - [Jeija's Bluefluff project](https://github.com/Jeija/bluefluff)
 - [L0ss & Swarley's Furbhax project](https://github.com/swarley7/furbhax)
+- [Igor Afanasyev's Furby audio implementation](https://github.com/iafan/Hacksby)
