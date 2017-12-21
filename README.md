@@ -26,7 +26,7 @@ def main():
     ...
 ```
 
-The class can be instantiated with an existing Furby Connect DLC by passing the path to one such DLC when creating an instance of the class:
+The class is most useful when instantiated with an existing Furby Connect DLC file. This can be done by passing the path to such a file when creating an instance of the class:
 
 ```
 D = dlc("./dlc/dlc1/tu012700.dlc")
@@ -35,6 +35,7 @@ D = dlc("./dlc/dlc1/tu012700.dlc")
 You can then access each of the various sections contained in the DLC via the `dlc_sections` dictionary:
 
 ```
+# For example:
 cels_section = D.dlc_sections["XLS"]
 ```
 
@@ -44,7 +45,8 @@ Each of the sections has a "main" storage object, which is either a list or a di
 xls_tree             = D.dlc_sections["XLS"].action_tree
 colour_palettes      = D.dlc_sections["PAL"].palettes
 eye_sprites          = D.dlc_sections["CEL"].cels
-animation_scheduling = D.dlc_sections["SPR"].anim_tree
+animation_scheduling = D.dlc_sections["SPR"].frame_playlists
+composited_frames    = D.dlc_sections["SPR"].frames
 audio_samples        = D.dlc_sections["AMF"].tracks
 audio_playlists      = D.dlc_sections["APL"].playlists
 lip_movements        = D.dlc_sections["LPS"].phrases
@@ -54,7 +56,11 @@ servo_movements      = D.dlc_sections["MTR"].animations
 
 For more information on what each section does and how they relate to one another, [check out our writeup](https://www.contextis.com/blog/dont-feed-them-after-midnight-reverse-engineering-the-furby-connect), which covers it in a fair amount of detail.
 
-After making modifications to a DLC, you can build it back into a new DLC by calling the `build()` function, passing the path to the output file:
+<p align="center">
+	<img src="images/dlc_hierarchy.png">
+</p>
+
+After making modifications to a DLC, you can build it back into a new DLC file by calling the `build()` function, passing the path to the output file:
 
 ```
 D.build("/tmp/new_dlc.dlc")
@@ -64,11 +70,11 @@ D.build("/tmp/new_dlc.dlc")
 
 ## Helper Functions
 
-Modifying a DLC can be achieved by changing the content stored in each part of the dlc sections, but we have also included a number of helper functions to make common tasks more straightforward.
+At its most basic level, the DLC class essentially breaks out the various data structures contained within a Furby DLC file into convenient Python data structures which can be handled and manipulated in a much more straightforward way. Modifying a DLC can be achieved by directly changing the content stored in each of these data structures, however we have also included several helper functions to make getting started with common tasks a much less burdensome experience.
 
 
-### dump_images(palette_index)
-`dump_images()` can be used to find and extract all the cels contained within a DLC, converting them to non-indexed 32-bit colour RGBA PNGs.
+### dump_cels(palette_index)
+`dump_cels()` can be used to find and extract all the cels contained within a DLC, converting them to non-indexed 32-bit colour RGBA PNGs.
 
  - `palette_index` is the index of the palette to use for rendering the cels. Although individual cels require different palettes to be rendered correctly, for ease of use, this function only accepts one palette index at a time.
 
@@ -76,11 +82,22 @@ Here's an example:
 
 ```
 # Dump cels using the 4th palette contained in the DLC.
-D.dump_images(4)
+D.dump_cels(4)
 
 # Different cels use different palettes.
-D.dump_images(5)
-D.dump_images(3)
+D.dump_cels(5)
+D.dump_cels(3)
+```
+
+### dump_cels_monochrome()
+
+As above, but attempts to use a monochrome palette if one is available. Useful for getting a quick overview of the cels contained within a DLC.
+
+Here's an example:
+
+```
+# Dump cels (monochrome) has no mandatory arguments.
+D.dump_cels_monochrome()
 ```
 
 ### replace_audio(action_code, audio_files)
@@ -154,15 +171,6 @@ D.dlc_sections["AMF"].minify_audio()
 D.build("/tmp/minified_dlc.dlc")
 ```
 
-### dump_images()
-
-`D.dump_images()` will attempt to render and output all the cels it finds in the DLC. It also needs to be passed the index to the palette it'll use to render each image. Here's an example snippet:
-
-```
-# Draw chillis.
-D = dlc("./dlc/dlc1/tu003140.dlc")
-D.dump_images(4)
-```
 
 ## Contributing
 

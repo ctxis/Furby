@@ -1428,11 +1428,18 @@ class dlc(object):
 		#Use PNGs to preserve transparency.
 		im.save(outfile, format="PNG")
 
-	def dump_images(self, palette_number, stub="./cel%04d.png"):
+	def dump_cels(self, palette_number, stub="./cel%04d.png"):
 
 		for p in range(len(self.dlc_sections["CEL"].cels)):
 
 			self.draw_cel(p, palette_number, (stub % p))
+
+	def dump_cels_monochrome(self, stub="./cel%04d.png"):
+
+		for p in range(len(self.dlc_sections["CEL"].cels)):
+
+			self.draw_cel(p, 1, (stub % p))
+
 
 	def replace_audio(self, action_code, audio_files):
 
