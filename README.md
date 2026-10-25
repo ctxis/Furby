@@ -9,13 +9,16 @@
 
 ### The original blog post can be found [here](https://www.contextis.com/blog/dont-feed-them-after-midnight-reverse-engineering-the-furby-connect)
 
+## Requirements
+
+Python 3 and [Pillow](https://python-pillow.org) 9.1 or later (`pip install -r requirements.txt`). Run the tests with `python3 -m unittest test_furby -v`.
 
 ## DLC Class
 
 This class is a wrapper around the syntax used by Furby Connect DLC files. To use it, add the line `from furby import dlc` to the top of your script:
 
 ```
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 from furby import dlc
